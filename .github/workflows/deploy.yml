@@ -20,7 +20,7 @@ jobs:
     - name: Set up AWS CLI
       uses: aws-actions/configure-aws-credentials@v6
       with:
-          role-to-assume: arn:aws:iam::970869661367:role/OIDC-Actions
+          role-to-assume: arn:aws:iam::970869661367:role/clinic-booking-oidc
           aws-region: us-east-1
 
     - name: Verify identity
