@@ -26,6 +26,6 @@ jobs:
     - name: Verify identity
       run: aws sts get-caller-identity
 
-    # Upload the web page. no-cache = browsers and CloudFront always fetch the latest version.
+    # Upload the web page to S3 (Amplify serves it over https). no-cache = browsers always get the latest version.
     - name: Sync to S3
       run: aws s3 sync ./frontend/ s3://clinic-booking-frontend/ --delete --cache-control "no-cache"

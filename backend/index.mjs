@@ -1,4 +1,3 @@
-// Every rule that must hold under concurrency is a DynamoDB conditional write.
 import crypto from 'node:crypto';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
@@ -8,347 +7,344 @@ import {
 
 const API_KEY = process.env.API_KEY;
 const TABLE = process.env.TABLE_NAME || 'clinic-booking';
-const RATE_LIMIT = 5;          // attempts per email ...
-const RATE_WINDOW_MS = 60000;  // ... per minute
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const db = DynamoDBDocumentClient.from(new DynamoDBClient({})); // access via the Lambda's IAM role, no password
 
-const ddb = DynamoDBDocumentClient.from(
-  new DynamoDBClient(process.env.DYNAMODB_ENDPOINT ? { endpoint: process.env.DYNAMODB_ENDPOINT } : {}),
-  { marshallOptions: { removeUndefinedValues: true } },
-);
+// Everything lives in one table. These are the "addresses" (keys) of each kind of record:
+const SLOT    = (slotId) => ({ PK: 'SLOTS', SK: `SLOT#${slotId}` });          // all slots together
+const BOOKING = (email, sk) => ({ PK: `EMAIL#${email}`, SK: sk });           // each person's bookings together, oldest first
+const LOOKUP  = (bookingId) => ({ PK: `BOOKING#${bookingId}`, SK: 'INFO' });  // booking id -> where the booking is
+const RETRY   = (key) => ({ PK: `RETRY#${key}`, SK: 'INFO' });                // saved answer for an Idempotency-Key
+const SPAM    = (email) => ({ PK: `SPAM#${email}`, SK: 'INFO' });             // attempt counter per email
 
-// ---------------------------------------------------------------- HTTP helpers
+
+// ============================================================== 1. HANDLER
+
+export const handler = async (event) => {
+  try {
+    const method = event.requestContext.http.method;
+    const path = event.rawPath;
+    const query = event.queryStringParameters || {};
+    const headers = Object.fromEntries(Object.entries(event.headers || {}).map(([k, v]) => [k.toLowerCase(), v]));
+
+    if (method === 'OPTIONS') return { statusCode: 204, headers: CORS, body: '' };   // browser's CORS check
+    if (path === '/health') return reply(200, { ok: true });
+
+    // LEVEL 2: no valid API key, no entry.
+    if (!isValidKey(headers['x-api-key'])) return error(401, 'missing or invalid API key');
+
+    let body;
+    if (event.body) {
+      try { body = JSON.parse(event.isBase64Encoded ? Buffer.from(event.body, 'base64').toString() : event.body); }
+      catch { return error(400, 'request body is not valid JSON'); }
+    }
+
+    const id = path.startsWith('/bookings/') ? decodeURIComponent(path.slice('/bookings/'.length)) : null;
+
+    if (method === 'POST'   && path === '/reset')    return await resetSlots(body);
+    if (method === 'GET'    && path === '/slots')    return await listSlots(query);
+    if (method === 'POST'   && path === '/bookings') return await createBooking(body, headers['idempotency-key']);
+    if (method === 'GET'    && path === '/bookings') return await listBookings(query);
+    if (method === 'GET'    && id)                   return await getBooking(id);
+    if (method === 'DELETE' && id)                   return await cancelBooking(id);
+    return error(404, 'not found');
+  } catch (err) {
+    console.error(err);                                         // details go to CloudWatch only
+    return error(500, 'internal server error');
+  }
+};
+
+
+// ============================================================== 2. ROUTES
+
+// POST /reset (Level 1): delete everything, then save the new slots.
+async function resetSlots(body) {
+  const slots = body?.slots;
+  if (!Array.isArray(slots)) return error(400, 'slots must be an array');
+  for (const s of slots) {
+    if (!s || !text(s.id) || typeof s.provider !== 'string' || !isDate(s.start) || !isDate(s.end)) {
+      return error(400, 'each slot needs id, provider, start and end (date-time)');
+    }
+  }
+  if (new Set(slots.map((s) => s.id)).size !== slots.length) return error(400, 'slot ids must be unique');
+
+  const everything = await scanAll();
+  await batchWrite(everything.map((Key) => ({ DeleteRequest: { Key } })));
+  await batchWrite(slots.map((s) => ({ PutRequest: { Item: {
+    ...SLOT(s.id), id: s.id, provider: s.provider, start: s.start, end: s.end, startMs: Date.parse(s.start),
+  } } })));
+  return reply(200, { ok: true, slots: slots.length });
+}
+
+// GET /slots (Level 1): every slot, earliest first. "available" = nobody has booked it.
+async function listSlots(query) {
+  const result = await db.send(new QueryCommand({
+    TableName: TABLE, KeyConditionExpression: 'PK = :pk', ExpressionAttributeValues: { ':pk': 'SLOTS' }, ConsistentRead: true,
+  }));
+  let slots = result.Items;
+  if (query.provider !== undefined) slots = slots.filter((s) => s.provider === query.provider);
+  slots.sort((a, b) => a.startMs - b.startMs || a.id.localeCompare(b.id));
+  return reply(200, { slots: slots.map((s) => ({ id: s.id, provider: s.provider, start: s.start, end: s.end, available: !s.bookingId })) });
+}
+
+// POST /bookings (Levels 1–5), in this order:
+//   1. Level 4: a retry we've already answered? -> send the same answer again
+//   2. Level 5: too many attempts from this email? -> 429
+//   3. Levels 2–3: check the details, then book
+async function createBooking(body, retryKey) {
+  if (retryKey) {
+    const retry = await startRetry(retryKey, body);
+    if (retry.differentBody) return error(422, 'Idempotency-Key was already used with a different request body');
+    if (retry.savedAnswer) return reply(retry.savedAnswer.status, retry.savedAnswer.body);
+  }
+
+  const email = cleanEmail(body?.email);
+  if (email) {
+    const waitSeconds = await countAttempt(email);
+    if (waitSeconds) {
+      if (retryKey) await forgetRetry(retryKey);
+      return error(429, 'too many booking attempts for this email, try again later', { 'Retry-After': String(waitSeconds) });
+    }
+  }
+
+  let answer;
+  try {
+    answer = await checkAndBook(body);
+  } catch (err) {
+    if (retryKey) await forgetRetry(retryKey);
+    throw err;
+  }
+  if (retryKey) await saveRetryAnswer(retryKey, answer);
+  return reply(answer.status, answer.body);
+}
+
+// LEVEL 2 checks (in the spec's order), then LEVEL 3 booking. Returns { status, body }.
+async function checkAndBook(body) {
+  const fail = (status, message) => ({ status, body: { error: message } });
+  const slotId = body?.slot_id;
+  const name = typeof body?.name === 'string' ? body.name.trim() : '';
+  const email = cleanEmail(body?.email);
+
+  if (!text(slotId))                              return fail(400, 'slot_id is required');
+  if (!name)                                      return fail(400, 'name is required');
+  if (!email)                                     return fail(400, 'email is required');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))  return fail(400, 'email is not valid');
+
+  const slot = await getItem(SLOT(slotId));
+  if (!slot)                                      return fail(404, 'slot not found');
+  if (slot.startMs <= Date.now())                 return fail(400, 'slot has already started');
+
+  const booking = await bookSlot(slotId, name, email);
+  return booking ? { status: 201, body: booking } : fail(409, 'slot is already booked');
+}
+
+// GET /bookings?email=&limit=&cursor= (Level 4): a person's bookings, oldest first, page by page.
+async function listBookings(query) {
+  const email = cleanEmail(query.email);
+  if (!email) return error(400, 'email is required');
+
+  const limit = query.limit === undefined ? 10 : Number(query.limit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50 || !/^\d+$/.test(query.limit ?? '10')) {
+    return error(400, 'limit must be an integer from 1 to 50');
+  }
+
+  // The cursor is the position (sort key) of the last booking on the previous page.
+  const after = query.cursor ? Buffer.from(query.cursor, 'base64url').toString() : null;
+  if (after !== null && !after.startsWith('BOOKING#')) return error(400, 'cursor is not valid');
+
+  const result = await db.send(new QueryCommand({
+    TableName: TABLE,
+    KeyConditionExpression: 'PK = :pk',
+    ExpressionAttributeValues: { ':pk': `EMAIL#${email}` },
+    ExclusiveStartKey: after ? BOOKING(email, after) : undefined,
+    Limit: limit + 1,                                 // one extra tells us if there is another page
+    ConsistentRead: true,
+  }));
+  const page = result.Items.slice(0, limit);
+  const more = result.Items.length > limit;
+  return reply(200, {
+    bookings: page.map(publicBooking),
+    next_cursor: more ? Buffer.from(page[page.length - 1].SK).toString('base64url') : null,
+  });
+}
+
+// GET /bookings/{id} (Level 1)
+async function getBooking(id) {
+  const found = await findBooking(id);
+  return found ? reply(200, publicBooking(found)) : error(404, 'booking not found');
+}
+
+// DELETE /bookings/{id} (Level 3): cancel the booking and free its slot.
+async function cancelBooking(id) {
+  const found = await findBooking(id);
+  if (!found) return error(404, 'booking not found');
+  const cancelled = await freeSlot(found);
+  return cancelled ? reply(200, { ...publicBooking(found), status: 'cancelled' }) : error(409, 'booking is already cancelled');
+}
+
+
+// ============================================================== 3. 
+async function bookSlot(slotId, name, email) {
+  const created_at = new Date().toISOString();
+  const booking = { id: crypto.randomUUID(), slot_id: slotId, name, email, status: 'confirmed', created_at };
+  const sk = `BOOKING#${created_at}#${booking.id}`;
+
+  const ok = await transaction([
+    { Update: { TableName: TABLE, Key: SLOT(slotId),
+        UpdateExpression: 'SET bookingId = :id',
+        ConditionExpression: 'attribute_not_exists(bookingId)',          // the "ONLY IF"
+        ExpressionAttributeValues: { ':id': booking.id } } },
+    { Put: { TableName: TABLE, Item: { ...BOOKING(email, sk), ...booking } } },
+    { Put: { TableName: TABLE, Item: { ...LOOKUP(booking.id), email, sk } } },
+  ]);
+  return ok ? booking : null;
+}
+
+// Cancel = set status to "cancelled" ONLY IF it is still confirmed, and free the slot. Together.
+async function freeSlot(booking) {
+  return transaction([
+    { Update: { TableName: TABLE, Key: BOOKING(booking.email, booking.SK),
+        UpdateExpression: 'SET #s = :cancelled',
+        ConditionExpression: '#s = :confirmed',                         // a second cancel fails here -> 409
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: { ':cancelled': 'cancelled', ':confirmed': 'confirmed' } } },
+    { Update: { TableName: TABLE, Key: SLOT(booking.slot_id), UpdateExpression: 'REMOVE bookingId' } },
+  ]);
+}
+
+// LEVEL 4: a retried request never creates a duplicate booking.
+async function startRetry(key, body) {
+  const bodyHash = crypto.createHash('sha256').update(JSON.stringify(sortKeys(body ?? null))).digest('hex');
+  for (let i = 0; i < 100; i++) {                                         // wait up to ~10 seconds
+    const claimed = await putIfNew(RETRY(key), { bodyHash, ttl: inSeconds(86400) });
+    if (claimed) return {};                                               // first time we see this key
+
+    const saved = await getItem(RETRY(key));
+    if (!saved) continue;                                                 // just released, try again
+    if (saved.bodyHash !== bodyHash) return { differentBody: true };
+    if (saved.answer) return { savedAnswer: saved.answer };
+    await sleep(100);                                                     // first request still working
+  }
+  throw new Error('previous request with this Idempotency-Key is still running');
+}
+const saveRetryAnswer = (key, answer) => db.send(new UpdateCommand({
+  TableName: TABLE, Key: RETRY(key), UpdateExpression: 'SET answer = :a', ExpressionAttributeValues: { ':a': answer },
+}));
+const forgetRetry = (key) => db.send(new DeleteCommand({ TableName: TABLE, Key: RETRY(key) }));
+
+// LEVEL 5: at most 5 booking attempts per email per minute (failed ones count too).
+async function countAttempt(email) {
+  const now = Date.now();
+  for (let i = 0; i < 5; i++) {
+    try {
+      // Add 1 to the current window, ONLY IF it is less than a minute old.
+      const { Attributes: w } = await db.send(new UpdateCommand({
+        TableName: TABLE, Key: SPAM(email),
+        UpdateExpression: 'ADD attempts :one',
+        ConditionExpression: 'windowStart > :minuteAgo',
+        ExpressionAttributeValues: { ':one': 1, ':minuteAgo': now - 60000 },
+        ReturnValues: 'ALL_NEW',
+      }));
+      return w.attempts <= 5 ? 0 : Math.max(1, Math.ceil((w.windowStart + 60000 - now) / 1000));
+    } catch (err) {
+      if (err.name !== 'ConditionalCheckFailedException') throw err;
+    }
+    // No window open: start one with this as attempt number 1 (ONLY IF nobody else just did).
+    const started = await putIfNew(SPAM(email), { attempts: 1, windowStart: now, ttl: inSeconds(3600) }, now - 60000);
+    if (started) return 0;
+  }
+  throw new Error('could not count booking attempt');
+}
+
+
+// ============================================================== 4. HELPERS
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, X-API-Key, Idempotency-Key',
   'Access-Control-Expose-Headers': 'Retry-After',
 };
-const json = (statusCode, body, headers = {}) => ({
+const reply = (statusCode, body, headers = {}) => ({
   statusCode, headers: { ...CORS, 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body),
 });
-const fail = (status, message, headers) => json(status, { error: message }, headers);
+const error = (statusCode, message, headers) => reply(statusCode, { error: message }, headers); // always { "error": ... }
 
-const isNonEmptyString = (v) => typeof v === 'string' && v.trim() !== '';
-const isValidDate = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const jitter = () => sleep(10 + Math.random() * 40);
-const isCondFail = (e) => e.name === 'ConditionalCheckFailedException';
-const reasons = (e) => (e.name === 'TransactionCanceledException' ? (e.CancellationReasons || []).map((r) => r && r.Code) : null);
-
-// Same JSON regardless of key order / whitespace -> same hash (for Idempotency-Key).
-function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-const hashBody = (body) => crypto.createHash('sha256').update(canonical(body ?? null)).digest('hex');
-
-function keyIsValid(given) {
-  if (!API_KEY || typeof given !== 'string' || given.length !== API_KEY.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(given), Buffer.from(API_KEY));
+// Compare in constant time, so the key can't be guessed from response times.
+function isValidKey(given) {
+  return Boolean(API_KEY) && typeof given === 'string' && given.length === API_KEY.length
+    && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(API_KEY));
 }
 
-// ---------------------------------------------------------------- the handler
-export const handler = async (event) => {
+const publicBooking = (b) => ({ id: b.id, slot_id: b.slot_id, name: b.name, email: b.email, status: b.status, created_at: b.created_at });
+
+async function findBooking(id) {
+  const lookup = await getItem(LOOKUP(id));
+  return lookup ? getItem(BOOKING(lookup.email, lookup.sk)) : null;
+}
+
+async function getItem(Key) {
+  return (await db.send(new GetCommand({ TableName: TABLE, Key, ConsistentRead: true }))).Item;
+}
+
+// Save ONLY IF the record doesn't exist (or, if `expiredBefore` is given, its window has expired).
+async function putIfNew(key, data, expiredBefore) {
   try {
-    // Works with API Gateway HTTP API (payload 2.0), REST API (1.0) and Function URLs.
-    const method = (event.requestContext?.http?.method || event.httpMethod || 'GET').toUpperCase();
-    let path = event.rawPath || event.path || '/';
-    const stage = event.requestContext?.stage;
-    if (stage && stage !== '$default' && path.startsWith(`/${stage}/`)) path = path.slice(stage.length + 1);
-    if (path.length > 1) path = path.replace(/\/+$/, '');
-    const headers = Object.fromEntries(Object.entries(event.headers || {}).map(([k, v]) => [k.toLowerCase(), v]));
-    const query = event.queryStringParameters || {};
-
-    if (method === 'OPTIONS') return { statusCode: 204, headers: CORS, body: '' };
-    if (method === 'GET' && path === '/health') return json(200, { ok: true });
-
-    // Level 2: every request needs the API key.
-    if (!keyIsValid(headers['x-api-key'])) return fail(401, 'missing or invalid API key');
-
-    let body;
-    if (event.body) {
-      const text = event.isBase64Encoded ? Buffer.from(event.body, 'base64').toString('utf8') : event.body;
-      try { body = JSON.parse(text); } catch { return fail(400, 'request body is not valid JSON'); }
-    }
-
-    if (method === 'POST' && path === '/reset') return await resetRoute(body);
-    if (method === 'GET' && path === '/slots') return await slotsRoute(query);
-    if (method === 'POST' && path === '/bookings') return await bookRoute(body, headers['idempotency-key']);
-    if (method === 'GET' && path === '/bookings') return await listRoute(query);
-    const m = path.match(/^\/bookings\/([^/]+)$/);
-    if (m && method === 'GET') return await getRoute(decodeURIComponent(m[1]));
-    if (m && method === 'DELETE') return await cancelRoute(decodeURIComponent(m[1]));
-    return fail(404, 'not found');
-  } catch (err) {
-    console.error(err);
-    return fail(500, 'internal server error');
-  }
-};
-
-// ---------------------------------------------------------------- routes
-// POST /reset (Level 1): delete every booking, replace all slots.
-async function resetRoute(body) {
-  const slots = body && body.slots;
-  if (!Array.isArray(slots)) return fail(400, 'slots must be an array');
-  for (const s of slots) {
-    if (!s || !isNonEmptyString(s.id) || typeof s.provider !== 'string' || !isValidDate(s.start) || !isValidDate(s.end)) {
-      return fail(400, 'each slot needs id, provider, start and end (date-time)');
-    }
-  }
-  if (new Set(slots.map((s) => s.id)).size !== slots.length) return fail(400, 'slot ids must be unique');
-
-  const deletes = [];
-  let start;
-  do {
-    const page = await ddb.send(new ScanCommand({ TableName: TABLE, ProjectionExpression: 'PK, SK', ExclusiveStartKey: start }));
-    for (const it of page.Items || []) deletes.push({ DeleteRequest: { Key: { PK: it.PK, SK: it.SK } } });
-    start = page.LastEvaluatedKey;
-  } while (start);
-  await batchWrite(deletes);
-  // start/end are stored exactly as sent, so they are echoed back unchanged.
-  await batchWrite(slots.map((s) => ({ PutRequest: { Item: {
-    PK: 'SLOTS', SK: `SLOT#${s.id}`, id: s.id, provider: s.provider, start: s.start, end: s.end, start_ts: Date.parse(s.start),
-  } } })));
-  return json(200, { ok: true, slots: slots.length });
-}
-
-// GET /slots?provider= (Level 1): every slot, earliest start first.
-async function slotsRoute(query) {
-  let items = [];
-  let start;
-  do {
-    const page = await ddb.send(new QueryCommand({
-      TableName: TABLE, KeyConditionExpression: 'PK = :p', ExpressionAttributeValues: { ':p': 'SLOTS' },
-      ConsistentRead: true, ExclusiveStartKey: start,
+    await db.send(new PutCommand({
+      TableName: TABLE, Item: { ...key, ...data },
+      ConditionExpression: expiredBefore ? 'attribute_not_exists(PK) OR windowStart <= :t' : 'attribute_not_exists(PK)',
+      ExpressionAttributeValues: expiredBefore ? { ':t': expiredBefore } : undefined,
     }));
-    items.push(...(page.Items || []));
-    start = page.LastEvaluatedKey;
-  } while (start);
-  if (query.provider !== undefined) items = items.filter((s) => s.provider === String(query.provider));
-  items.sort((a, b) => a.start_ts - b.start_ts || (a.id < b.id ? -1 : 1));
-  return json(200, { slots: items.map((s) => ({ id: s.id, provider: s.provider, start: s.start, end: s.end, available: !s.booking_id })) });
-}
-
-// POST /bookings (Levels 1–5)
-async function bookRoute(body, idemKey) {
-  const rawEmail = body && typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
-  let claimed = false;
-  try {
-    // Level 4: same key + same body -> same response; same key + different body -> 422.
-    if (idemKey) {
-      const c = await claimIdempotency(idemKey, hashBody(body));
-      if (c.mismatch) return fail(422, 'Idempotency-Key was already used with a different request body');
-      if (c.replay) return json(c.replay.status, c.replay.body);
-      claimed = true;
-    }
-    // Level 5: max 5 attempts per email per minute (failed attempts count).
-    if (rawEmail) {
-      const rl = await recordAttempt(rawEmail);
-      if (!rl.allowed) {
-        if (claimed) { await releaseIdempotency(idemKey); claimed = false; }
-        return fail(429, 'too many booking attempts for this email, try again later', { 'Retry-After': String(rl.retryAfter) });
-      }
-    }
-    const result = await createBooking(body);
-    if (claimed) await completeIdempotency(idemKey, result.status, result.body);
-    return json(result.status, result.body);
+    return true;
   } catch (err) {
-    if (claimed) await releaseIdempotency(idemKey).catch(() => {});
+    if (err.name === 'ConditionalCheckFailedException') return false;
     throw err;
   }
 }
 
-// Validation (in the spec's order) + the booking itself. Returns {status, body}.
-async function createBooking(body) {
-  const err = (status, message) => ({ status, body: { error: message } });
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return err(400, 'request body must be a JSON object');
-  const { slot_id } = body;
-  const name = typeof body.name === 'string' ? body.name.trim() : body.name;
-  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : body.email;
-
-  if (!isNonEmptyString(slot_id)) return err(400, 'slot_id is required');
-  if (!isNonEmptyString(name)) return err(400, 'name is required');
-  if (!isNonEmptyString(email)) return err(400, 'email is required');
-  if (!EMAIL_RE.test(email)) return err(400, 'email is not valid');
-
-  const slot = (await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: 'SLOTS', SK: `SLOT#${slot_id}` }, ConsistentRead: true }))).Item;
-  if (!slot) return err(404, 'slot not found');
-  if (slot.start_ts <= Date.now()) return err(400, 'slot has already started');
-
-  // Level 3: one transaction claims the slot ONLY IF it has no booking, and writes the booking.
-  // However many requests arrive at the same instant, only one can satisfy the condition.
-  const id = crypto.randomUUID();
-  const created_at = new Date().toISOString();
-  const sk = `BOOKING#${created_at}#${id}`;
-  const booking = { id, slot_id, name, email, status: 'confirmed', created_at };
-  for (let attempt = 0; attempt < 12; attempt++) {
+// Runs a transaction. Returns true if it went through, false if an "ONLY IF" check failed.
+// If two transactions touch the same record at the same instant, DynamoDB asks us to retry.
+async function transaction(steps) {
+  for (let i = 0; i < 10; i++) {
     try {
-      await ddb.send(new TransactWriteCommand({ TransactItems: [
-        { Update: {
-          TableName: TABLE, Key: { PK: 'SLOTS', SK: `SLOT#${slot_id}` }, UpdateExpression: 'SET booking_id = :b',
-          ConditionExpression: 'attribute_exists(PK) AND attribute_not_exists(booking_id)', ExpressionAttributeValues: { ':b': id },
-        } },
-        { Put: { TableName: TABLE, Item: { PK: `EMAIL#${email}`, SK: sk, ...booking } } },
-        { Put: { TableName: TABLE, Item: { PK: `BOOKING#${id}`, SK: 'BOOKING', email, sk } } },
-      ] }));
-      return { status: 201, body: booking };
-    } catch (e) {
-      const r = reasons(e);
-      if (!r) throw e;
-      if (r[0] === 'ConditionalCheckFailed') return err(409, 'slot is already booked');
-      if (r.includes('TransactionConflict')) { await jitter(); continue; } // racing another booking: retry
-      throw e;
+      await db.send(new TransactWriteCommand({ TransactItems: steps }));
+      return true;
+    } catch (err) {
+      const reasons = (err.CancellationReasons || []).map((r) => r?.Code);
+      if (reasons.includes('ConditionalCheckFailed')) return false;
+      if (!reasons.includes('TransactionConflict')) throw err;
+      await sleep(10 + Math.random() * 40);
     }
   }
-  return err(409, 'slot is already booked');
+  return false;
 }
 
-// GET /bookings?email=&limit=&cursor= (Level 4): a person's bookings, oldest first.
-async function listRoute(query) {
-  const email = typeof query.email === 'string' ? query.email.trim().toLowerCase() : '';
-  if (!email) return fail(400, 'email is required');
-  let limit = 10;
-  if (query.limit !== undefined) {
-    const raw = String(query.limit);
-    if (!/^\d+$/.test(raw) || Number(raw) < 1 || Number(raw) > 50) return fail(400, 'limit must be an integer from 1 to 50');
-    limit = Number(raw);
-  }
-  let afterSk = null;
-  if (query.cursor !== undefined && query.cursor !== '') {
-    afterSk = Buffer.from(String(query.cursor), 'base64url').toString();
-    if (!afterSk.startsWith('BOOKING#')) return fail(400, 'cursor is not valid');
-  }
-  const out = await ddb.send(new QueryCommand({
-    TableName: TABLE, KeyConditionExpression: 'PK = :p', ExpressionAttributeValues: { ':p': `EMAIL#${email}` },
-    ConsistentRead: true, ScanIndexForward: true, Limit: limit + 1, // one extra row tells us if there's another page
-    ExclusiveStartKey: afterSk ? { PK: `EMAIL#${email}`, SK: afterSk } : undefined,
-  }));
-  const items = out.Items || [];
-  const page = items.slice(0, limit);
-  const next = items.length > limit ? Buffer.from(page[page.length - 1].SK).toString('base64url') : null;
-  return json(200, { bookings: page.map(toBooking), next_cursor: next });
+async function scanAll() {
+  const keys = [];
+  let start;
+  do {
+    const page = await db.send(new ScanCommand({ TableName: TABLE, ProjectionExpression: 'PK, SK', ExclusiveStartKey: start }));
+    keys.push(...page.Items);
+    start = page.LastEvaluatedKey;
+  } while (start);
+  return keys;
 }
 
-// GET /bookings/{id} (Level 1)
-async function getRoute(id) {
-  const found = await findBooking(id);
-  return found ? json(200, toBooking(found.item)) : fail(404, 'booking not found');
-}
-
-// DELETE /bookings/{id} (Level 3): cancel and free the slot, atomically.
-async function cancelRoute(id) {
-  const found = await findBooking(id);
-  if (!found) return fail(404, 'booking not found');
-  const { item, key } = found;
-  const markCancelled = {
-    TableName: TABLE, Key: key, UpdateExpression: 'SET #s = :c', ConditionExpression: '#s = :conf',
-    ExpressionAttributeNames: { '#s': 'status' }, ExpressionAttributeValues: { ':c': 'cancelled', ':conf': 'confirmed' },
-  };
-  for (let attempt = 0; attempt < 12; attempt++) {
-    try {
-      await ddb.send(new TransactWriteCommand({ TransactItems: [
-        { Update: markCancelled },
-        { Update: {
-          TableName: TABLE, Key: { PK: 'SLOTS', SK: `SLOT#${item.slot_id}` }, UpdateExpression: 'REMOVE booking_id',
-          ConditionExpression: 'booking_id = :b', ExpressionAttributeValues: { ':b': id },
-        } },
-      ] }));
-      return json(200, { ...toBooking(item), status: 'cancelled' });
-    } catch (e) {
-      const r = reasons(e);
-      if (!r) throw e;
-      if (r[0] === 'ConditionalCheckFailed') return fail(409, 'booking is already cancelled');
-      if (r.includes('TransactionConflict')) { await jitter(); continue; }
-      if (r[1] === 'ConditionalCheckFailed') { // slot no longer held by this booking: just cancel the booking
-        await ddb.send(new UpdateCommand(markCancelled)).catch((x) => { if (!isCondFail(x)) throw x; });
-        return json(200, { ...toBooking(item), status: 'cancelled' });
-      }
-      throw e;
-    }
-  }
-  throw new Error('cancel kept conflicting');
-}
-
-// ---------------------------------------------------------------- data helpers
-const toBooking = (i) => ({ id: i.id, slot_id: i.slot_id, name: i.name, email: i.email, status: i.status, created_at: i.created_at });
-
-async function findBooking(id) {
-  const ptr = (await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: `BOOKING#${id}`, SK: 'BOOKING' }, ConsistentRead: true }))).Item;
-  if (!ptr) return null;
-  const key = { PK: `EMAIL#${ptr.email}`, SK: ptr.sk };
-  const item = (await ddb.send(new GetCommand({ TableName: TABLE, Key: key, ConsistentRead: true }))).Item;
-  return item ? { item, key } : null;
-}
-
+// DynamoDB takes at most 25 writes per batch, and may hand some back to retry.
 async function batchWrite(requests) {
   for (let i = 0; i < requests.length; i += 25) {
-    let pending = { [TABLE]: requests.slice(i, i + 25) };
-    for (let attempt = 0; pending; attempt++) {
-      if (attempt > 8) throw new Error('DynamoDB batch write kept failing');
-      if (attempt) await sleep(50 * 2 ** attempt);
-      const out = await ddb.send(new BatchWriteCommand({ RequestItems: pending }));
-      pending = out.UnprocessedItems && Object.keys(out.UnprocessedItems).length ? out.UnprocessedItems : null;
+    let todo = { [TABLE]: requests.slice(i, i + 25) };
+    while (todo) {
+      const result = await db.send(new BatchWriteCommand({ RequestItems: todo }));
+      todo = Object.keys(result.UnprocessedItems || {}).length ? result.UnprocessedItems : null;
+      if (todo) await sleep(100);
     }
   }
 }
 
-// Level 4: claim the key with a conditional put. A concurrent retry with the same key
-// waits for the first request to finish, then gets exactly the same stored response.
-async function claimIdempotency(idemKey, hash) {
-  const Key = { PK: `IDEM#${idemKey}`, SK: 'IDEM' };
-  const deadline = Date.now() + 10000;
-  while (Date.now() < deadline) {
-    try {
-      await ddb.send(new PutCommand({
-        TableName: TABLE, ConditionExpression: 'attribute_not_exists(PK)',
-        Item: { ...Key, hash, state: 'pending', ttl: Math.floor(Date.now() / 1000) + 86400 },
-      }));
-      return { claimed: true };
-    } catch (e) { if (!isCondFail(e)) throw e; }
-    const it = (await ddb.send(new GetCommand({ TableName: TABLE, Key, ConsistentRead: true }))).Item;
-    if (!it) continue;                               // released meanwhile: try to claim again
-    if (it.hash !== hash) return { mismatch: true };
-    if (it.state === 'done') return { replay: { status: it.status_code, body: it.response } };
-    await sleep(100);                                // first request still running
-  }
-  throw new Error('idempotent request is still in progress');
-}
-const completeIdempotency = (idemKey, status, body) => ddb.send(new UpdateCommand({
-  TableName: TABLE, Key: { PK: `IDEM#${idemKey}`, SK: 'IDEM' },
-  UpdateExpression: 'SET #st = :d, status_code = :s, #r = :r',
-  ExpressionAttributeNames: { '#st': 'state', '#r': 'response' }, ExpressionAttributeValues: { ':d': 'done', ':s': status, ':r': body },
-}));
-const releaseIdempotency = (idemKey) => ddb.send(new DeleteCommand({ TableName: TABLE, Key: { PK: `IDEM#${idemKey}`, SK: 'IDEM' } }));
-
-// Level 5: at most RATE_LIMIT attempts per email per RATE_WINDOW_MS. The version check
-// (optimistic locking) means parallel requests can't both slip past the count.
-async function recordAttempt(email) {
-  const Key = { PK: `RATE#${email}`, SK: 'RATE' };
-  for (let attempt = 0; attempt < 40; attempt++) {
-    const now = Date.now();
-    const it = (await ddb.send(new GetCommand({ TableName: TABLE, Key, ConsistentRead: true }))).Item;
-    const recent = ((it && it.attempts) || []).filter((t) => t > now - RATE_WINDOW_MS).sort((a, b) => a - b);
-    if (recent.length >= RATE_LIMIT) {
-      const freesAt = recent[recent.length - RATE_LIMIT] + RATE_WINDOW_MS;
-      return { allowed: false, retryAfter: Math.max(1, Math.ceil((freesAt - now) / 1000)) };
-    }
-    const version = (it && it.version) || 0;
-    try {
-      await ddb.send(new PutCommand({
-        TableName: TABLE,
-        Item: { ...Key, attempts: [...recent, now], version: version + 1, ttl: Math.floor(now / 1000) + 3600 },
-        ConditionExpression: it ? 'version = :v' : 'attribute_not_exists(PK)',
-        ExpressionAttributeValues: it ? { ':v': version } : undefined,
-      }));
-      return { allowed: true };
-    } catch (e) {
-      if (!isCondFail(e)) throw e;
-      await jitter(); // someone else updated the counter first: re-read and retry
-    }
-  }
-  throw new Error('rate limiter is busy');
-}
+const text = (v) => typeof v === 'string' && v.trim() !== '';
+const isDate = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
+const cleanEmail = (v) => (typeof v === 'string' ? v.trim().toLowerCase() : '');
+const inSeconds = (s) => Math.floor(Date.now() / 1000) + s;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sortKeys = (v) => (Array.isArray(v) ? v.map(sortKeys)
+  : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeys(v[k])])) : v);

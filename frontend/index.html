@@ -5,683 +5,427 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Clinic Booking</title>
 <style>
-  :root {
-    --bg:#f5f7f8; --surface:#ffffff; --surface-2:#f0f3f4; --ink:#16202a; --muted:#5d6b78; --line:#e1e6ea;
-    --brand:#0f766e; --brand-ink:#ffffff; --brand-soft:#e3f3f1;
-    --ok:#067647; --ok-bg:#e8f7ee; --bad:#b42318; --bad-bg:#fdeceb; --shadow:0 1px 2px rgba(16,24,40,.06), 0 8px 24px rgba(16,24,40,.06);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg:#0e1116; --surface:#161b22; --surface-2:#1c222b; --ink:#e7ebef; --muted:#9aa6b2; --line:#29313b;
-      --brand:#2dd4bf; --brand-ink:#05201d; --brand-soft:#123430;
-      --ok:#6ce9a6; --ok-bg:#0f2a1d; --bad:#fda29b; --bad-bg:#2e1513; --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
-    }
-  }
-  * { box-sizing:border-box; }
-  body { margin:0; font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--ink); }
-  [hidden] { display:none !important; }
-  button { font:inherit; cursor:pointer; }
-  input { font:inherit; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, "Segoe UI", Roboto, sans-serif; color: #1d2b3a; background: #eef3f8; }
+  button, input { font: inherit; }
+  [hidden] { display: none !important; }
 
-  .topbar { background:var(--surface); border-bottom:1px solid var(--line); }
-  .topbar-inner { max-width:1040px; margin:0 auto; padding:14px 16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-  .logo { width:34px; height:34px; border-radius:9px; background:var(--brand); color:var(--brand-ink); display:grid; place-items:center; font-weight:800; font-size:22px; }
-  .brand h1 { font-size:18px; margin:0; line-height:1.2; }
-  .brand p { margin:0; font-size:13px; color:var(--muted); }
-  .topbar .spacer { flex:1; }
-  .conn { display:flex; align-items:center; gap:4px 8px; flex-wrap:wrap; font-size:13px; color:var(--muted); }
-  .conn > * { white-space:nowrap; }
-  .dot { width:8px; height:8px; border-radius:50%; background:var(--ok); }
-  .link { background:none; border:0; color:var(--brand); padding:4px 6px; border-radius:6px; font-size:13px; }
-  .link:hover { background:var(--brand-soft); }
+  /* Top bar */
+  .topbar { background: #0a66c2; color: #fff; }
+  .topbar .inner { max-width: 1100px; margin: auto; padding: 12px 16px; display: flex; align-items: center; }
+  .logo { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; margin-right: auto; }
+  .logo span { color: #ffd23f; }
+  .topbar button { padding: 7px 14px; border: 1px solid #fff; background: transparent; color: #fff; border-radius: 4px; cursor: pointer; }
 
-  main { max-width:1040px; margin:0 auto; padding:20px 16px 48px; }
-  .card { background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
+  /* Page + cards */
+  .page { max-width: 1100px; margin: auto; padding: 36px 16px 60px; }
+  .page h1 { font-size: 40px; margin: 0 0 28px; color: #33475b; }
+  .card { background: #fff; border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.10); }
+  .welcome { max-width: 440px; margin: 40px auto; padding: 28px; }
+  .welcome h2 { margin: 0 0 6px; }
+  .welcome p { margin: 0 0 18px; color: #5b6b7b; }
+  input { width: 100%; padding: 11px; border: 1px solid #d5dde5; border-radius: 6px; }
+  .btn { padding: 10px 18px; border: 0; border-radius: 6px; background: #0a66c2; color: #fff; cursor: pointer; }
+  .btn.red { background: #e02424; }
+  .btn.light { background: #eef3f8; color: #1d2b3a; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .message { margin-top: 12px; padding: 10px 14px; border-radius: 6px; }
+  .message.ok { background: #e7f6ec; color: #116b34; }
+  .message.bad { background: #fde8e8; color: #9b1c1c; }
 
-  .connect { max-width:440px; margin:48px auto; padding:28px; }
-  .connect h2 { margin:0 0 6px; font-size:20px; }
-  .connect p { margin:0 0 18px; color:var(--muted); }
+  /* Tabs */
+  .tabs { display: flex; border-bottom: 1px solid #e3e8ee; }
+  .tab { flex: 1; padding: 16px; border: 0; background: none; cursor: pointer; text-align: left; border-bottom: 3px solid transparent; }
+  .tab b { display: block; font-size: 18px; color: #5b6b7b; }
+  .tab small { color: #5b6b7b; }
+  .tab.active { border-bottom-color: #0a66c2; }
+  .tab.active b { color: #0a66c2; }
+  .panel { padding: 20px; }
 
-  label { display:block; font-size:13px; font-weight:600; margin-bottom:6px; }
-  .field { margin-bottom:14px; }
-  .input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--surface-2); color:var(--ink); }
-  .input:focus { outline:2px solid var(--brand); outline-offset:1px; border-color:transparent; }
-  .input[aria-invalid="true"] { border-color:var(--bad); }
-  .err { color:var(--bad); font-size:13px; margin-top:4px; min-height:0; }
-  .btn { padding:10px 16px; border:0; border-radius:10px; background:var(--brand); color:var(--brand-ink); font-weight:600; }
-  .btn:disabled { opacity:.55; cursor:not-allowed; }
-  .btn.secondary { background:var(--surface-2); color:var(--ink); border:1px solid var(--line); }
-  .btn.danger { background:transparent; color:var(--bad); border:1px solid var(--line); }
-  .btn.block { width:100%; }
-  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; }
-  .row > .grow { flex:1 1 220px; }
+  /* Doctor buttons */
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+  .chip { padding: 7px 16px; border: 1px solid #c9d6e3; border-radius: 99px; background: #fff; cursor: pointer; }
+  .chip.active { background: #0a66c2; border-color: #0a66c2; color: #fff; }
 
-  .msg { padding:10px 12px; border-radius:10px; margin-top:12px; font-size:14px; }
-  .msg.ok { background:var(--ok-bg); color:var(--ok); }
-  .msg.bad { background:var(--bad-bg); color:var(--bad); }
+  /* Calendar (left) + times for the chosen day (right) */
+  .booker { display: grid; grid-template-columns: 360px 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 760px) { .booker { grid-template-columns: 1fr; } .page h1 { font-size: 30px; } }
+  .calendar { border: 1px solid #e3e8ee; border-radius: 12px; padding: 14px; }
+  .cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .cal-head button { width: 34px; height: 34px; border: 1px solid #d5dde5; border-radius: 8px; background: #fff; cursor: pointer; }
+  .cal-head button:disabled { opacity: .3; cursor: default; }
+  .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; text-align: center; }
+  .weekday { font-size: 12px; color: #5b6b7b; font-weight: 600; padding: 4px 0; }
+  .day { min-width: 0; height: 46px; padding: 0; border: 0; border-radius: 8px; background: none; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 600; cursor: pointer; }
+  .day small { font-size: 9px; color: #0a66c2; white-space: nowrap; }
+  .day.open { background: #e7f0fa; }
+  .day.selected { background: #0a66c2; color: #fff; }
+  .day.selected small { color: #fff; }
+  .day:disabled { color: #b4bfca; background: none; cursor: default; }
+  .times h3 { margin: 0; font-size: 20px; }
+  .times .hint { margin: 2px 0 14px; color: #5b6b7b; }
+  .slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .slot { text-align: left; padding: 12px 14px; border: 1px solid #c9d6e3; border-radius: 10px; background: #fff; cursor: pointer; }
+  .slot:hover { border-color: #0a66c2; }
+  .slot b { display: block; font-size: 18px; }
+  .slot span { color: #5b6b7b; font-size: 14px; }
+  .slot em { display: block; margin-top: 6px; font-style: normal; font-weight: 600; color: #0a66c2; font-size: 14px; }
 
-  .tabs { display:flex; gap:4px; background:var(--surface-2); border:1px solid var(--line); padding:4px; border-radius:12px; width:max-content; max-width:100%; margin-bottom:18px; }
-  .tab { border:0; background:transparent; color:var(--muted); padding:8px 16px; border-radius:9px; font-weight:600; }
-  .tab[aria-selected="true"] { background:var(--surface); color:var(--ink); box-shadow:var(--shadow); }
+  /* Booking window */
+  dialog { border: 0; border-radius: 14px; padding: 24px; width: min(440px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog h2 { margin: 0; }
+  dialog .when { margin: 4px 0 16px; color: #5b6b7b; }
+  dialog input { margin-bottom: 10px; }
+  .row-buttons { display: flex; gap: 8px; margin-top: 8px; }
+  .row-buttons .btn { flex: 1; }
+  .done h2 { color: #116b34; }
+  .done p { margin: 6px 0; }
 
-  .section-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
-  .section-head h2 { margin:0; font-size:18px; }
-  .hint { color:var(--muted); font-size:14px; margin:0; }
-
-  .chips { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
-  .chip { border:1px solid var(--line); background:var(--surface); color:var(--ink); padding:6px 14px; border-radius:99px; font-size:14px; }
-  .chip[aria-pressed="true"] { background:var(--brand); border-color:var(--brand); color:var(--brand-ink); }
-
-  /* calendar + day panel */
-  .booker { display:grid; grid-template-columns:340px 1fr; gap:16px; align-items:start; }
-  @media (max-width: 780px) { .booker { grid-template-columns:1fr; } }
-  .cal { padding:16px; }
-  .cal-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
-  .cal-head h3 { margin:0; font-size:16px; }
-  .nav { width:34px; height:34px; border-radius:9px; border:1px solid var(--line); background:var(--surface-2); color:var(--ink); font-size:16px; line-height:1; }
-  .nav:disabled { opacity:.35; cursor:not-allowed; }
-  .cal-grid { display:grid; grid-template-columns:repeat(7, 1fr); gap:4px; }
-  .dow { text-align:center; font-size:12px; font-weight:600; color:var(--muted); padding:4px 0; }
-  .day-cell { aspect-ratio:1 / 1; min-height:38px; border:1px solid transparent; border-radius:10px; background:transparent; color:var(--ink);
-              display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding:0; font-weight:600; position:relative; }
-  .day-cell .n { font-size:14px; }
-  .day-cell .open { font-size:10px; font-weight:600; color:var(--brand); line-height:1; }
-  .day-cell.has-open { background:var(--brand-soft); }
-  .day-cell.has-open:hover:not(:disabled) { border-color:var(--brand); }
-  .day-cell:disabled { color:var(--muted); opacity:.45; cursor:default; background:transparent; }
-  .day-cell.today .n { text-decoration:underline; text-underline-offset:3px; }
-  .day-cell[aria-pressed="true"] { background:var(--brand); color:var(--brand-ink); }
-  .day-cell[aria-pressed="true"] .open { color:var(--brand-ink); }
-  .legend { display:flex; gap:14px; margin-top:12px; font-size:12px; color:var(--muted); }
-  .legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; vertical-align:-1px; }
-  .day-panel { padding:18px; min-height:300px; }
-  .day-panel h3 { margin:0; font-size:18px; }
-  .day-panel .sub { margin:2px 0 14px; color:var(--muted); font-size:14px; }
-
-  .slots { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px; }
-  .slot { text-align:left; background:var(--surface); color:var(--ink); border:1px solid var(--line); border-radius:12px; padding:12px 14px; transition:border-color .12s, transform .12s, box-shadow .12s; }
-  .slot:hover:not(:disabled) { border-color:var(--brand); box-shadow:var(--shadow); transform:translateY(-1px); }
-  .slot:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
-  .slot .time { font-size:18px; font-weight:700; display:block; }
-  .slot .doc { color:var(--muted); font-size:14px; display:block; }
-  .slot .cta { display:inline-block; margin-top:8px; font-size:13px; font-weight:600; color:var(--brand); }
-  .slot:disabled { cursor:not-allowed; background:var(--surface-2); }
-  .slot:disabled .time { color:var(--muted); text-decoration:line-through; }
-  .slot:disabled .cta { color:var(--muted); }
-  .empty { text-align:center; padding:40px 16px; color:var(--muted); }
-
-  .badge { display:inline-block; font-size:12px; font-weight:600; padding:2px 10px; border-radius:99px; }
-  .badge.confirmed { background:var(--ok-bg); color:var(--ok); }
-  .badge.cancelled { background:var(--bad-bg); color:var(--bad); }
-
-  dialog { border:0; border-radius:16px; padding:0; width:min(460px, calc(100vw - 32px)); background:var(--surface); color:var(--ink); box-shadow:0 24px 64px rgba(0,0,0,.35); }
-  dialog::backdrop { background:rgba(8,12,16,.55); }
-  .dlg-head { display:flex; align-items:flex-start; gap:12px; padding:20px 20px 0; }
-  .dlg-head h2 { margin:0; font-size:18px; }
-  .dlg-head p { margin:2px 0 0; color:var(--muted); font-size:14px; }
-  .dlg-head .x { margin-left:auto; background:none; border:0; color:var(--muted); font-size:22px; line-height:1; padding:2px 6px; border-radius:8px; }
-  .dlg-head .x:hover { background:var(--surface-2); }
-  .dlg-body { padding:16px 20px 20px; }
-  .success-icon { width:44px; height:44px; border-radius:50%; background:var(--ok-bg); color:var(--ok); display:grid; place-items:center; font-size:22px; font-weight:700; }
-  .success-icon.cancelled { background:var(--bad-bg); color:var(--bad); }
-  dl.details { display:grid; grid-template-columns:110px 1fr; gap:8px 12px; margin:16px 0; font-size:14px; }
-  dl.details dt { color:var(--muted); }
-  dl.details dd { margin:0; word-break:break-word; }
-  .ref { display:flex; align-items:center; gap:8px; background:var(--surface-2); border:1px dashed var(--line); border-radius:10px; padding:8px 10px; font-family:ui-monospace,Consolas,monospace; font-size:13px; word-break:break-all; }
-  .ref span { flex:1; }
-  .actions { display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; }
-  .actions .btn { flex:1; }
-
-  .bookings { display:grid; gap:10px; margin-top:16px; }
-  .booking { display:flex; gap:14px; align-items:center; flex-wrap:wrap; padding:14px 16px; }
-  .booking .main { flex:1 1 220px; }
-  .booking .when { font-weight:600; }
-  .booking .sub { color:var(--muted); font-size:13px; word-break:break-all; }
-  .panel { padding:20px; }
-  .divider { height:1px; background:var(--line); margin:22px 0; }
-
-  .toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:var(--ink); color:var(--surface); padding:10px 16px; border-radius:10px; font-size:14px; box-shadow:var(--shadow); z-index:10; max-width:calc(100vw - 32px); }
+  /* My bookings */
+  .find { display: flex; gap: 8px; margin-bottom: 8px; }
+  .booking { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #e3e8ee; flex-wrap: wrap; }
+  .status { font-size: 13px; font-weight: 600; padding: 2px 10px; border-radius: 99px; background: #e7f6ec; color: #116b34; }
+  .status.cancelled { background: #fde8e8; color: #9b1c1c; }
+  .muted { color: #5b6b7b; }
 </style>
 </head>
 <body>
+
 <header class="topbar">
-  <div class="topbar-inner">
-    <div class="logo" aria-hidden="true">+</div>
-    <div class="brand">
-      <h1>Clinic Booking</h1>
-      <p>Book an appointment in under a minute</p>
-    </div>
-    <div class="spacer"></div>
-    <div class="conn" id="connBar" hidden>
-      <span class="dot" aria-hidden="true"></span><span>Connected</span>
-      <button class="link" id="resetBtn" title="Replace all slots with sample ones for the next 5 weeks and delete all bookings">Load sample appointments</button>
-      <button class="link" id="changeKeyBtn">Change API key</button>
-    </div>
+  <div class="inner">
+    <div class="logo">Clinic <span>Booking</span></div>
+    <button id="resetBtn" hidden title="POST /reset: clear all bookings and load 5 weeks of appointments">Reset</button>
   </div>
 </header>
 
-<main>
-  <!-- Shown until a valid API key is entered -->
-  <section id="connectView" class="card connect" aria-labelledby="connectTitle">
-    <h2 id="connectTitle">Welcome</h2>
+<!-- Screen 1: enter the API key -->
+<main class="page" id="welcome">
+  <form class="card welcome" id="keyForm">
+    <h2>Welcome</h2>
     <p>Enter the clinic's API key to see available appointments.</p>
-    <form id="connectForm" novalidate>
-      <div class="field">
-        <label for="apiKey">API key</label>
-        <input id="apiKey" class="input" type="password" autocomplete="off" placeholder="Paste your X-API-Key">
-      </div>
-      <button id="connectBtn" class="btn block" type="submit">Continue</button>
-      <div id="connectMsg" class="msg" role="alert" hidden></div>
-    </form>
-  </section>
-
-  <!-- The app -->
-  <section id="appView" hidden>
-    <div class="tabs" role="tablist">
-      <button class="tab" id="tabBook" role="tab" aria-selected="true" aria-controls="panelBook">Book an appointment</button>
-      <button class="tab" id="tabMine" role="tab" aria-selected="false" aria-controls="panelMine">My bookings</button>
-    </div>
-
-    <div id="panelBook" role="tabpanel" aria-labelledby="tabBook">
-      <div class="section-head">
-        <h2>Choose a day and time</h2>
-        <p class="hint">Highlighted days have open appointments.</p>
-      </div>
-      <div class="chips" id="providerChips" aria-label="Filter by doctor"></div>
-      <div class="booker">
-        <div class="card cal" id="calendar">
-          <div class="cal-head">
-            <button class="nav" id="prevMonth" type="button" aria-label="Previous month">‹</button>
-            <h3 id="monthTitle"></h3>
-            <button class="nav" id="nextMonth" type="button" aria-label="Next month">›</button>
-          </div>
-          <div class="cal-grid" id="calGrid"></div>
-          <div class="legend"><span><i style="background:var(--brand-soft)"></i>Open times</span><span><i style="background:var(--brand)"></i>Selected</span></div>
-        </div>
-        <div class="card day-panel">
-          <h3 id="dayTitle">Pick a day</h3>
-          <p class="sub" id="daySub"></p>
-          <div id="slots" aria-live="polite"></div>
-        </div>
-      </div>
-    </div>
-
-    <div id="panelMine" role="tabpanel" aria-labelledby="tabMine" hidden>
-      <div class="card panel">
-        <div class="section-head"><h2>Find your bookings</h2></div>
-        <form id="mineForm" class="row" novalidate>
-          <div class="grow">
-            <label for="mineEmail">Email you booked with</label>
-            <input id="mineEmail" class="input" type="email" placeholder="ada@example.com">
-          </div>
-          <button id="mineBtn" class="btn" type="submit">Show bookings</button>
-        </form>
-        <div id="mineMsg" class="msg" role="alert" hidden></div>
-        <div id="mineList" class="bookings"></div>
-        <div class="actions" style="justify-content:center"><button id="moreBtn" class="btn secondary" hidden>Load more</button></div>
-
-        <div class="divider"></div>
-
-        <form id="lookupForm" class="row" novalidate>
-          <div class="grow">
-            <label for="lookupId">Or look up a booking reference</label>
-            <input id="lookupId" class="input" placeholder="e.g. 3f2a9c1e-…">
-          </div>
-          <button id="lookupBtn" class="btn secondary" type="submit">Look up</button>
-        </form>
-        <div id="lookupMsg" class="msg" role="alert" hidden></div>
-        <div id="lookupResult" class="bookings"></div>
-      </div>
-    </div>
-  </section>
+    <input id="apiKey" type="password" placeholder="API key" required>
+    <button class="btn" style="width:100%;margin-top:12px">Continue</button>
+    <div id="keyMessage"></div>
+  </form>
 </main>
 
-<!-- Booking dialog: opens when a slot is clicked -->
-<dialog id="bookDialog" aria-labelledby="dlgTitle">
-  <div class="dlg-head">
-    <div>
-      <h2 id="dlgTitle">Book appointment</h2>
-      <p id="dlgWhen"></p>
+<!-- Screen 2: book -->
+<main class="page" id="app" hidden>
+  <h1>Book the Best Doctor</h1>
+  <div class="card">
+    <div class="tabs">
+      <button class="tab active" data-tab="book"><b>Book an appointment</b><small>Pick a day and a time</small></button>
+      <button class="tab" data-tab="mine"><b>My bookings</b><small>View or cancel</small></button>
     </div>
-    <button class="x" id="closeDialog" aria-label="Close">×</button>
-  </div>
 
-  <div class="dlg-body" id="formView">
-    <form id="bookForm" novalidate>
-      <div class="field">
-        <label for="name">Full name</label>
-        <input id="name" class="input" autocomplete="name" placeholder="Ada Obi" aria-describedby="nameErr">
-        <div id="nameErr" class="err" aria-live="polite"></div>
+    <section class="panel" id="book">
+      <div class="chips" id="doctors"></div>
+      <div class="booker">
+        <div class="calendar">
+          <div class="cal-head">
+            <button id="prevMonth">‹</button><b id="monthName"></b><button id="nextMonth">›</button>
+          </div>
+          <div class="grid" id="days"></div>
+        </div>
+        <div class="times">
+          <h3 id="dayName"></h3>
+          <p class="hint" id="dayHint"></p>
+          <div class="slots" id="slots"></div>
+        </div>
       </div>
-      <div class="field">
-        <label for="email">Email</label>
-        <input id="email" class="input" type="email" autocomplete="email" placeholder="ada@example.com" aria-describedby="emailErr">
-        <div id="emailErr" class="err" aria-live="polite"></div>
-      </div>
-      <button id="bookBtn" class="btn block" type="submit">Confirm booking</button>
-      <div id="bookMsg" class="msg" role="alert" hidden></div>
-    </form>
-  </div>
+      <div id="pageMessage"></div>
+    </section>
 
-  <div class="dlg-body" id="successView" hidden>
-    <div class="success-icon" id="successIcon" aria-hidden="true">✓</div>
-    <h2 id="successTitle" style="margin:12px 0 0;font-size:18px">You're booked</h2>
-    <dl class="details" id="confirmDetails"></dl>
-    <label>Booking reference</label>
-    <div class="ref"><span id="bookingRef"></span><button class="link" id="copyRef" type="button">Copy</button></div>
-    <div id="cancelMsg" class="msg" role="status" hidden></div>
-    <div class="actions">
-      <button class="btn danger" id="cancelBtn" type="button">Cancel booking</button>
-      <button class="btn" id="doneBtn" type="button">Done</button>
+    <section class="panel" id="mine" hidden>
+      <form class="find" id="mineForm"><input id="myEmail" type="email" placeholder="Email you booked with" required><button class="btn">Find</button></form>
+      <div id="myBookings"></div>
+      <button class="btn light" id="moreBtn" hidden>Load more</button>
+      <form class="find" id="lookupForm" style="margin-top:24px"><input id="lookupId" placeholder="Or look up a booking reference" required><button class="btn light">Look up</button></form>
+      <div id="lookupResult"></div>
+    </section>
+  </div>
+</main>
+
+<!-- Booking window: opens when a time is clicked -->
+<dialog id="bookDialog">
+  <form id="bookForm">
+    <h2 id="dialogTitle"></h2>
+    <p class="when" id="dialogWhen"></p>
+    <input id="name" placeholder="Full name" required>
+    <input id="email" type="email" placeholder="Email" required>
+    <div class="row-buttons">
+      <button class="btn light" type="button" id="closeBtn">Close</button>
+      <button class="btn red" id="confirmBtn">Confirm booking</button>
     </div>
-  </div>
+    <div id="bookMessage"></div>
+  </form>
+  <div class="done" id="doneView" hidden></div>
 </dialog>
-
-<div id="toast" class="toast" role="status" hidden></div>
 
 <script src="config.js"></script>
 <script>
+// ------------------------------------------------------------------ setup
+const API = window.CLINIC_API_BASE;          // API Gateway URL, from config.js
 const $ = (id) => document.getElementById(id);
-// API Gateway URL from config.js (empty = same site as this page).
-const API_BASE = String(window.CLINIC_API_BASE || '').replace(/\/+$/, '');
-const API_CONFIGURED = !API_BASE.includes('YOUR-API-ID');
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+let allSlots = [];                           // every slot from GET /slots
+let doctor = '';                             // '' = all doctors
+let selectedDay = null;                      // e.g. "2026-11-16"
+let month = null;                            // the month shown in the calendar
+let picked = null;                           // the slot being booked
+let nextCursor = null;                       // paging in My bookings
 
-// The key is kept only for this browser tab (sessionStorage), never in the page or the repo.
-const keyStore = {
-  get() { try { return sessionStorage.getItem('apiKey') || ''; } catch { return ''; } },
-  set(v) { try { sessionStorage.setItem('apiKey', v); } catch {} },
-  clear() { try { sessionStorage.removeItem('apiKey'); } catch {} },
+$('apiKey').value = sessionStorage.getItem('apiKey') || '';   // remembered for this tab only
+
+// Every API call goes through here and sends the API key.
+async function api(method, path, body, headers = {}) {
+  const res = await fetch(API + path, {
+    method,
+    headers: { 'X-API-Key': $('apiKey').value, 'Content-Type': 'application/json', ...headers },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return { status: res.status, data: await res.json(), retryAfter: res.headers.get('Retry-After') };
+}
+
+function message(boxId, text, ok) {
+  $(boxId).innerHTML = text ? `<div class="message ${ok ? 'ok' : 'bad'}">${escape(text)}</div>` : '';
+}
+function escape(text) {                      // makes names/emails safe to put on the page
+  return String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+// Date helpers. A "day key" is the local date, e.g. "2026-11-16".
+const pad = (n) => String(n).padStart(2, '0');
+const dayKey = (date) => { const d = new Date(date); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const longDay = (date) => new Date(date).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
+const timeOf = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const isOpen = (s) => s.available && new Date(s.start) > new Date();   // not booked and not in the past
+const describe = (slotId) => {
+  const s = allSlots.find((x) => x.id === slotId);
+  return s ? `${s.provider} · ${longDay(s.start)} at ${timeOf(s.start)}` : `Slot ${slotId}`;
 };
 
-let apiKey = '';
-let allSlots = [];          // unfiltered list, used for doctor chips and booking details
-let slotsById = {};
-let provider = '';          // '' = all doctors
-let current = { slot: null, booking: null, idem: null };
-let mineCursor = null, mineEmail = '';
-
-// ---------- helpers ----------
-function h(tag, props = {}, ...kids) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(props)) {
-    if (k === 'class') el.className = v;
-    else if (k === 'text') el.textContent = v;
-    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
-    else if (v === true) el.setAttribute(k, '');
-    else if (v !== false && v != null) el.setAttribute(k, v);
-  }
-  for (const c of kids.flat()) if (c != null) el.append(c);
-  return el;
-}
-function showMsg(el, kind, text) { el.textContent = text || ''; el.className = 'msg' + (text ? ' ' + kind : ''); el.hidden = !text; }
-let toastTimer;
-function toast(text) { const t = $('toast'); t.textContent = text; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 3000); }
-
-const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-const fmtDay = (iso) => new Date(iso).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
-const fmtWhen = (s) => `${fmtDay(s.start)} · ${fmtTime(s.start)} – ${fmtTime(s.end)}`;
-const minutes = (s) => Math.round((new Date(s.end) - new Date(s.start)) / 60000);
-
-async function api(method, path, body, extraHeaders = {}) {
-  try {
-    const res = await fetch(API_BASE + path, {
-      method,
-      headers: { 'X-API-Key': apiKey, ...(body ? { 'Content-Type': 'application/json' } : {}), ...extraHeaders },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.status === 401 && path !== '/slots?probe') handleUnauthorized();
-    return { status: res.status, data, retryAfter: res.headers.get('Retry-After') };
-  } catch {
-    return { status: 0, data: { error: 'Could not reach the server. Check your connection.' } };
-  }
+// ------------------------------------------------------------------ 0. API key screen
+async function connect() {
+  if (!(await loadSlots())) return;
+  sessionStorage.setItem('apiKey', $('apiKey').value);
+  $('welcome').hidden = true; $('app').hidden = false; $('resetBtn').hidden = false;
 }
 
-// ---------- connect ----------
-function showApp(on) {
-  $('connectView').hidden = on; $('appView').hidden = !on; $('connBar').hidden = !on;
-}
-function handleUnauthorized() {
-  keyStore.clear(); apiKey = '';
-  if ($('bookDialog').open) $('bookDialog').close();
-  showApp(false);
-  showMsg($('connectMsg'), 'bad', 'Your API key was rejected (401). Please enter it again.');
-}
-async function connect(key, quiet) {
-  apiKey = key.trim();
-  if (!API_CONFIGURED) return showMsg($('connectMsg'), 'bad', 'This page is not connected to the API yet: set your API Gateway URL in config.js.');
-  if (!apiKey) return showMsg($('connectMsg'), 'bad', 'Please enter the API key.');
-  $('connectBtn').disabled = true;
-  const r = await api('GET', '/slots?probe');
-  $('connectBtn').disabled = false;
-  if (r.status === 401) { apiKey = ''; if (!quiet) showMsg($('connectMsg'), 'bad', '401: that API key was not accepted.'); return; }
-  if (r.status !== 200) { apiKey = ''; showMsg($('connectMsg'), 'bad', r.data.error || `Something went wrong (${r.status}).`); return; }
-  keyStore.set(apiKey);
-  showMsg($('connectMsg'));
-  showApp(true);
-  setAllSlots(r.data.slots);
-  renderSlots(r.data.slots);
-}
-$('connectForm').addEventListener('submit', (e) => { e.preventDefault(); connect($('apiKey').value); });
-$('changeKeyBtn').onclick = () => { keyStore.clear(); apiKey = ''; $('apiKey').value = ''; showApp(false); $('apiKey').focus(); };
-
-// ---------- slots ----------
-function setAllSlots(slots) {
-  allSlots = slots;
-  slotsById = Object.fromEntries(slots.map((s) => [s.id, s]));
-  renderChips();
-}
-function renderChips() {
-  const providers = [...new Set(allSlots.map((s) => s.provider))].sort();
-  if (provider && !providers.includes(provider)) provider = '';
-  const chip = (label, value) => h('button', {
-    class: 'chip', type: 'button', 'data-provider': value, 'aria-pressed': String(provider === value),
-    text: label, onclick: () => { provider = value; renderChips(); loadSlots(); },
-  });
-  $('providerChips').replaceChildren(chip('All doctors', ''), ...providers.map((p) => chip(p, p)));
-}
+// ------------------------------------------------------------------ 1. load the slots
 async function loadSlots() {
-  const all = await api('GET', '/slots');
-  if (all.status !== 200) return;
-  setAllSlots(all.data.slots);
-  if (!provider) return renderSlots(all.data.slots);
-  const r = await api('GET', '/slots?provider=' + encodeURIComponent(provider)); // server-side filter
-  if (r.status === 200) renderSlots(r.data.slots);
-}
-// ---------- calendar ----------
-const pad = (n) => String(n).padStart(2, '0');
-// Local calendar date of a timestamp, e.g. "2026-11-16" (exposed for tests).
-function dateKey(iso) { const d = new Date(iso); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
-window.dateKey = dateKey;
-const todayKey = () => dateKey(new Date());
-const isPast = (s) => new Date(s.start) <= new Date();
-const bookable = (s) => s.available && !isPast(s);
-
-let shownSlots = [];        // slots for the current doctor filter
-let byDay = new Map();      // dateKey -> slots
-let selectedDay = null;     // dateKey
-let viewMonth = null;       // Date at the 1st of the month shown
-
-function renderSlots(slots) {
-  shownSlots = slots;
-  byDay = new Map();
-  for (const s of slots) {
-    const k = dateKey(s.start);
-    if (!byDay.has(k)) byDay.set(k, []);
-    byDay.get(k).push(s);
+  const { status, data } = await api('GET', '/slots');
+  if (status !== 200) {                      // e.g. 401 wrong key: back to the key screen
+    $('welcome').hidden = false; $('app').hidden = true; $('resetBtn').hidden = true;
+    message('keyMessage', `${status}: ${data.error}`);
+    return false;
   }
-  const openDays = [...byDay.keys()].filter((k) => byDay.get(k).some(bookable)).sort();
-  // Keep the chosen day if it still has slots; otherwise jump to the next day with open times.
-  if (!selectedDay || !byDay.has(selectedDay) || selectedDay < todayKey()) selectedDay = openDays[0] || null;
-  if (selectedDay && (!viewMonth || !monthHasDay(viewMonth, selectedDay))) {
-    const [y, m] = selectedDay.split('-').map(Number);
-    viewMonth = new Date(y, m - 1, 1); // show the month that contains the selected day
-  } else if (!viewMonth) {
-    const now = new Date(); viewMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  }
-  renderCalendar();
-  renderDay();
+  allSlots = data.slots;
+  drawDoctors();
+  drawCalendar();
+  drawTimes();
+  return true;
 }
-function monthHasDay(month, key) { return key.startsWith(`${month.getFullYear()}-${pad(month.getMonth() + 1)}`); }
 
-function renderCalendar() {
-  const y = viewMonth.getFullYear(), m = viewMonth.getMonth();
-  $('monthTitle').textContent = viewMonth.toLocaleDateString([], { month: 'long', year: 'numeric' });
+// Slots for the chosen doctor, grouped by day: { "2026-11-16": [slot, slot, ...] }
+function slotsByDay() {
+  const days = {};
+  for (const s of allSlots) {
+    if (doctor && s.provider !== doctor) continue;
+    (days[dayKey(s.start)] ||= []).push(s);
+  }
+  return days;
+}
+
+function drawDoctors() {
+  const names = ['', ...new Set(allSlots.map((s) => s.provider))];
+  $('doctors').innerHTML = names.map((n) =>
+    `<button class="chip ${n === doctor ? 'active' : ''}" data-doctor="${escape(n)}">${n ? escape(n) : 'All doctors'}</button>`).join('');
+}
+
+$('doctors').onclick = (e) => {
+  const chip = e.target.closest('.chip');
+  if (!chip) return;
+  doctor = chip.dataset.doctor;
+  drawDoctors(); drawCalendar(); drawTimes();
+};
+
+// ------------------------------------------------------------------ 2. the calendar
+function drawCalendar() {
+  const days = slotsByDay();
+  // Start on the first day that has open times (if the chosen day has none left).
+  if (!selectedDay || !(days[selectedDay] || []).some(isOpen)) {
+    selectedDay = Object.keys(days).sort().find((d) => days[d].some(isOpen)) || null;
+    if (selectedDay) month = new Date(selectedDay + 'T00:00');
+  }
+  if (!month) month = new Date();
+
+  const year = month.getFullYear(), m = month.getMonth();
+  $('monthName').textContent = month.toLocaleDateString([], { month: 'long', year: 'numeric' });
   const now = new Date();
-  $('prevMonth').disabled = y < now.getFullYear() || (y === now.getFullYear() && m <= now.getMonth());
-  const cells = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => h('div', { class: 'dow', text: d }));
-  const lead = (new Date(y, m, 1).getDay() + 6) % 7; // Monday-first
-  for (let i = 0; i < lead; i++) cells.push(h('div'));
-  const days = new Date(y, m + 1, 0).getDate();
-  const today = todayKey();
-  for (let d = 1; d <= days; d++) {
-    const key = `${y}-${pad(m + 1)}-${pad(d)}`;
-    const list = byDay.get(key) || [];
-    const open = list.filter(bookable).length;
-    const past = key < today;
-    const label = new Date(y, m, d).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
-    cells.push(h('button', {
-      class: 'day-cell' + (open ? ' has-open' : '') + (key === today ? ' today' : ''),
-      type: 'button', 'data-date': key, 'data-open': String(open),
-      disabled: past || !list.length, 'aria-pressed': String(key === selectedDay),
-      'aria-label': `${label}, ${open ? open + ' open' : 'no open times'}`,
-      onclick: () => { selectedDay = key; renderCalendar(); renderDay(); },
-    }, h('span', { class: 'n', text: String(d) }), open ? h('span', { class: 'open', text: `${open} open` }) : null));
-  }
-  $('calGrid').replaceChildren(...cells);
-}
-$('prevMonth').onclick = () => { viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1); renderCalendar(); };
-$('nextMonth').onclick = () => { viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1); renderCalendar(); };
+  $('prevMonth').disabled = year === now.getFullYear() && m <= now.getMonth();
 
-function renderDay() {
-  const box = $('slots');
-  const anyUpcoming = shownSlots.some(bookable);
-  if (!selectedDay || !anyUpcoming) {
-    $('dayTitle').textContent = 'No open appointments';
-    $('daySub').textContent = provider ? `${provider} has no upcoming open times.` : 'There are no upcoming open times.';
-    box.replaceChildren(h('div', { class: 'empty' },
-      h('p', { text: 'Load sample appointments to try the booking flow.' }),
-      h('button', { class: 'btn', type: 'button', text: 'Load sample appointments (next 5 weeks)', onclick: resetDemo })));
+  let html = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => `<div class="weekday">${d}</div>`).join('');
+  const blanks = (new Date(year, m, 1).getDay() + 6) % 7;                  // weeks start on Monday
+  html += '<div></div>'.repeat(blanks);
+  for (let d = 1; d <= new Date(year, m + 1, 0).getDate(); d++) {
+    const key = `${year}-${pad(m + 1)}-${pad(d)}`;
+    const open = (days[key] || []).filter(isOpen).length;
+    const past = key < dayKey(now);
+    html += `<button class="day ${open ? 'open' : ''} ${key === selectedDay ? 'selected' : ''}" data-day="${key}"
+               ${past || !open ? 'disabled' : ''}>${d}${open ? `<small>${open} open</small>` : ''}</button>`;
+  }
+  $('days').innerHTML = html;
+}
+
+$('days').onclick = (e) => {
+  const day = e.target.closest('.day');
+  if (!day || day.disabled) return;
+  selectedDay = day.dataset.day;
+  drawCalendar(); drawTimes();
+};
+$('prevMonth').onclick = () => { month = new Date(month.getFullYear(), month.getMonth() - 1, 1); drawCalendar(); };
+$('nextMonth').onclick = () => { month = new Date(month.getFullYear(), month.getMonth() + 1, 1); drawCalendar(); };
+
+// ------------------------------------------------------------------ 3. the times for the chosen day
+function drawTimes() {
+  const open = (slotsByDay()[selectedDay] || []).filter(isOpen);
+  if (!open.length) {
+    $('dayName').textContent = 'No open appointments';
+    $('dayHint').textContent = 'Click Reset (top right) to load appointments for the next 5 weeks.';
+    $('slots').innerHTML = '';
     return;
   }
-  const list = (byDay.get(selectedDay) || []).slice().sort((a, b) => new Date(a.start) - new Date(b.start));
-  const open = list.filter(bookable).length;
-  $('dayTitle').textContent = new Date(list[0].start).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
-  $('daySub').textContent = open ? `${open} open time${open === 1 ? '' : 's'}. Click one to book.` : 'Fully booked. Pick another highlighted day.';
-  box.replaceChildren(h('div', { class: 'slots' }, list.map((s) => {
-    const state = isPast(s) ? 'Past' : s.available ? 'Book →' : 'Booked';
-    return h('button', {
-      class: 'slot', type: 'button', 'data-id': s.id, disabled: !bookable(s),
-      'aria-label': `${s.provider}, ${fmtWhen(s)}, ${state === 'Book →' ? 'open' : state.toLowerCase()}`,
-      onclick: () => openBooking(s),
-    },
-      h('span', { class: 'time', text: fmtTime(s.start) }),
-      h('span', { class: 'doc', text: `${s.provider} · ${minutes(s)} min` }),
-      h('span', { class: 'cta', text: state }));
-  })));
+  $('dayName').textContent = longDay(open[0].start);
+  $('dayHint').textContent = `${open.length} open times. Click one to book.`;
+  $('slots').innerHTML = open.map((s) => `
+    <button class="slot" data-id="${escape(s.id)}">
+      <b>${timeOf(s.start)}</b><span>${escape(s.provider)} · 30 min</span><em>Book →</em>
+    </button>`).join('');
 }
 
-// ---------- booking dialog ----------
-function openBooking(slot) {
-  current = { slot, booking: null, idem: null };
-  $('dlgTitle').textContent = `Book with ${slot.provider}`;
-  $('dlgWhen').textContent = fmtWhen(slot);
-  $('formView').hidden = false; $('successView').hidden = true;
-  showMsg($('bookMsg')); setFieldError('name', ''); setFieldError('email', '');
-  $('bookBtn').disabled = false; $('bookBtn').textContent = 'Confirm booking';
+// ------------------------------------------------------------------ 4. book (in the booking window)
+$('slots').onclick = (e) => {
+  const button = e.target.closest('.slot');
+  if (!button) return;
+  picked = allSlots.find((s) => s.id === button.dataset.id);
+  $('dialogTitle').textContent = `Book with ${picked.provider}`;
+  $('dialogWhen').textContent = `${longDay(picked.start)} at ${timeOf(picked.start)}`;
+  $('bookForm').hidden = false; $('doneView').hidden = true;
+  message('bookMessage', '');
   $('bookDialog').showModal();
-  $('name').focus();
-}
-function setFieldError(id, text) {
-  $(id + 'Err').textContent = text;
-  $(id).setAttribute('aria-invalid', text ? 'true' : 'false');
-}
-function validate() {
-  const name = $('name').value.trim();
-  const email = $('email').value.trim();
-  setFieldError('name', name ? '' : 'Please enter your name.');
-  setFieldError('email', !email ? 'Please enter your email.' : EMAIL_RE.test(email) ? '' : 'Please enter a valid email, like ada@example.com.');
-  if (!name) $('name').focus(); else if (!EMAIL_RE.test(email)) $('email').focus();
-  return name && EMAIL_RE.test(email);
-}
-$('name').addEventListener('input', () => setFieldError('name', ''));
-$('email').addEventListener('input', () => setFieldError('email', ''));
-
-$('bookForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  showMsg($('bookMsg'));
-  if (!validate()) return;
-  const body = { slot_id: current.slot.id, name: $('name').value, email: $('email').value };
-  // One Idempotency-Key per attempt: a double click or a network retry can never double-book.
-  const sig = JSON.stringify(body);
-  if (!current.idem || current.idem.sig !== sig) current.idem = { key: crypto.randomUUID(), sig };
-  $('bookBtn').disabled = true; $('bookBtn').textContent = 'Booking…';
-  const r = await api('POST', '/bookings', body, { 'Idempotency-Key': current.idem.key });
-  $('bookBtn').disabled = false; $('bookBtn').textContent = 'Confirm booking';
-
-  if (r.status === 201) { showSuccess(r.data); loadSlots(); return; }
-  if (r.status === 409) { showMsg($('bookMsg'), 'bad', 'Sorry, someone has just booked this time. Please choose another slot.'); $('bookBtn').disabled = true; loadSlots(); return; }
-  if (r.status === 429) { showMsg($('bookMsg'), 'bad', `Too many attempts for this email. Please try again in ${r.retryAfter} seconds.`); return; }
-  if (r.status === 404) { showMsg($('bookMsg'), 'bad', 'This slot no longer exists. Please choose another.'); loadSlots(); return; }
-  if (r.status === 400 && /started/.test(r.data.error || '')) { showMsg($('bookMsg'), 'bad', 'This appointment has already started. Please choose a later time.'); return; }
-  showMsg($('bookMsg'), 'bad', r.data.error ? `${r.status}: ${r.data.error}` : 'Something went wrong. Please try again.');
-});
-
-function showSuccess(b) {
-  current.booking = b;
-  const s = slotsById[b.slot_id] || current.slot;
-  $('formView').hidden = true; $('successView').hidden = false;
-  renderConfirmation(b, s);
-}
-function renderConfirmation(b, s) {
-  const cancelled = b.status === 'cancelled';
-  $('successIcon').textContent = cancelled ? '×' : '✓';
-  $('successIcon').classList.toggle('cancelled', cancelled);
-  $('successTitle').textContent = cancelled ? 'Booking cancelled' : "You're booked";
-  const rows = [
-    ['Doctor', s ? s.provider : '—'],
-    ['When', s ? fmtWhen(s) : b.slot_id],
-    ['Name', b.name],
-    ['Email', b.email],
-  ];
-  $('confirmDetails').replaceChildren(...rows.flatMap(([k, v]) => [h('dt', { text: k }), h('dd', { text: v })]),
-    h('dt', { text: 'Status' }), h('dd', {}, h('span', { class: 'badge ' + b.status, text: b.status })));
-  $('bookingRef').textContent = b.id;
-  $('cancelBtn').disabled = cancelled;
-  $('cancelBtn').hidden = cancelled;
-}
-$('copyRef').onclick = async () => {
-  try { await navigator.clipboard.writeText($('bookingRef').textContent); toast('Booking reference copied'); } catch { toast('Copy failed, select the reference instead'); }
 };
-$('cancelBtn').onclick = async () => {
-  const b = current.booking;
-  if (!b) return;
-  $('cancelBtn').disabled = true;
-  const r = await api('DELETE', '/bookings/' + encodeURIComponent(b.id));
-  if (r.status === 200 || r.status === 409) {
-    const updated = r.status === 200 ? r.data : { ...b, status: 'cancelled' };
-    current.booking = updated;
-    renderConfirmation(updated, slotsById[b.slot_id] || current.slot);
-    showMsg($('cancelMsg'), 'ok', 'Your booking has been cancelled and the slot is free again.');
-    loadSlots();
-  } else {
-    $('cancelBtn').disabled = false;
-    showMsg($('cancelMsg'), 'bad', r.data.error || 'Could not cancel. Please try again.');
-  }
-};
-function closeDialog() { $('bookDialog').close(); }
-$('doneBtn').onclick = closeDialog;
-$('closeDialog').onclick = closeDialog;
-$('bookDialog').addEventListener('close', () => { showMsg($('cancelMsg')); });
 
-// ---------- my bookings ----------
-function bookingCard(b) {
-  const s = slotsById[b.slot_id];
-  const card = h('div', { class: 'card booking', 'data-id': b.id },
-    h('div', { class: 'main' },
-      h('div', { class: 'when', text: s ? `${s.provider} · ${fmtWhen(s)}` : `Slot ${b.slot_id}` }),
-      h('div', { class: 'sub', text: `${b.name} · Ref ${b.id}` })),
-    h('span', { class: 'badge ' + b.status, text: b.status }));
-  if (b.status === 'confirmed') {
-    card.append(h('button', {
-      class: 'btn danger cancel-row', type: 'button', text: 'Cancel',
-      onclick: async (e) => {
-        e.target.disabled = true;
-        const r = await api('DELETE', '/bookings/' + encodeURIComponent(b.id));
-        if (r.status === 200 || r.status === 409) { card.replaceWith(bookingCard(r.status === 200 ? r.data : { ...b, status: 'cancelled' })); toast('Booking cancelled'); loadSlots(); }
-        else { e.target.disabled = false; toast(r.data.error || 'Could not cancel'); }
-      },
-    }));
-  }
-  return card;
-}
-async function loadMine(reset) {
-  showMsg($('mineMsg'));
-  if (reset) {
-    mineEmail = $('mineEmail').value.trim();
-    mineCursor = null;
-    $('mineList').replaceChildren();
-    if (!EMAIL_RE.test(mineEmail)) { $('moreBtn').hidden = true; return showMsg($('mineMsg'), 'bad', 'Please enter a valid email.'); }
-  }
-  const q = new URLSearchParams({ email: mineEmail, limit: '3' });
-  if (mineCursor) q.set('cursor', mineCursor);
-  const r = await api('GET', '/bookings?' + q);
-  if (r.status !== 200) return showMsg($('mineMsg'), 'bad', r.data.error || 'Could not load bookings.');
-  if (!Object.keys(slotsById).length) await loadSlots();
-  $('mineList').append(...r.data.bookings.map(bookingCard));
-  if (!$('mineList').children.length) showMsg($('mineMsg'), 'ok', 'No bookings found for this email.');
-  mineCursor = r.data.next_cursor;
-  $('moreBtn').hidden = !mineCursor;
-}
-$('mineForm').addEventListener('submit', (e) => { e.preventDefault(); loadMine(true); });
-$('moreBtn').onclick = () => loadMine(false);
-
-$('lookupForm').addEventListener('submit', async (e) => {
+$('bookForm').onsubmit = async (e) => {
   e.preventDefault();
-  showMsg($('lookupMsg')); $('lookupResult').replaceChildren();
-  const id = $('lookupId').value.trim();
-  if (!id) return showMsg($('lookupMsg'), 'bad', 'Please enter a booking reference.');
-  const r = await api('GET', '/bookings/' + encodeURIComponent(id));
-  if (r.status === 200) $('lookupResult').append(bookingCard(r.data));
-  else if (r.status === 404) showMsg($('lookupMsg'), 'bad', 'No booking found with that reference.');
-  else showMsg($('lookupMsg'), 'bad', r.data.error || 'Lookup failed.');
-});
+  const body = { slot_id: picked.id, name: $('name').value, email: $('email').value };
+  $('confirmBtn').disabled = true;
+  // Idempotency-Key (Level 4): if this request is retried, the API won't book twice.
+  const { status, data, retryAfter } = await api('POST', '/bookings', body, { 'Idempotency-Key': crypto.randomUUID() });
+  $('confirmBtn').disabled = false;
 
-// ---------- tabs ----------
-function selectTab(which) {
-  const book = which === 'book';
-  $('tabBook').setAttribute('aria-selected', String(book));
-  $('tabMine').setAttribute('aria-selected', String(!book));
-  $('panelBook').hidden = !book; $('panelMine').hidden = book;
+  if (status === 201) { showConfirmation(data); loadSlots(); }
+  else if (status === 409) { message('bookMessage', 'Sorry, someone just booked this time. Please choose another.'); loadSlots(); }
+  else if (status === 429) message('bookMessage', `Too many attempts. Try again in ${retryAfter} seconds.`);
+  else message('bookMessage', `${status}: ${data.error}`);
+};
+
+// The confirmation replaces the form inside the window.
+function showConfirmation(b) {
+  const booked = b.status === 'confirmed';
+  $('bookForm').hidden = true; $('doneView').hidden = false;
+  $('doneView').innerHTML = `
+    <h2>${booked ? '✓ You are booked' : 'Booking cancelled'}</h2>
+    <p><b>${escape(describe(b.slot_id))}</b></p>
+    <p>${escape(b.name)} · ${escape(b.email)}</p>
+    <p class="muted">Booking reference: <code>${escape(b.id)}</code></p>
+    <div class="row-buttons">
+      ${booked ? `<button class="btn light" onclick="cancel('${escape(b.id)}')">Cancel booking</button>` : ''}
+      <button class="btn" onclick="$('bookDialog').close()">Done</button>
+    </div>`;
 }
-$('tabBook').onclick = () => { selectTab('book'); loadSlots(); };
-$('tabMine').onclick = () => selectTab('mine');
 
-// ---------- demo data ----------
-// Sample schedule for the next 35 days (at least a month), counted from the moment the
-// button is clicked, so there are always bookable times whenever someone tests the page.
-// Same schedule as scripts/seed.js.
+// Cancel (Level 3): the slot becomes free again.
+async function cancel(id) {
+  const { status, data } = await api('DELETE', `/bookings/${encodeURIComponent(id)}`);
+  if (status !== 200) return alert(`${status}: ${data.error}`);
+  if ($('bookDialog').open) showConfirmation(data);
+  loadSlots();
+  if (!$('mine').hidden && $('myEmail').value) findMyBookings(true);
+}
+
+$('closeBtn').onclick = () => $('bookDialog').close();
+
+// ------------------------------------------------------------------ 5. my bookings + look up
+function bookingRow(b) {
+  return `<div class="booking">
+      <span><b>${escape(describe(b.slot_id))}</b><br><span class="muted">${escape(b.name)} · Ref ${escape(b.id)}</span></span>
+      <span><span class="status ${b.status}">${b.status}</span>
+      ${b.status === 'confirmed' ? `<button class="btn light" onclick="cancel('${escape(b.id)}')">Cancel</button>` : ''}</span>
+    </div>`;
+}
+
+// Paging (Level 4): 3 per page; "Load more" sends back the next_cursor the API returned.
+async function findMyBookings(fromStart) {
+  if (fromStart) { nextCursor = null; $('myBookings').innerHTML = ''; }
+  const query = `email=${encodeURIComponent($('myEmail').value)}&limit=3` + (nextCursor ? `&cursor=${nextCursor}` : '');
+  const { status, data } = await api('GET', `/bookings?${query}`);
+  if (status !== 200) return message('myBookings', `${status}: ${data.error}`);
+  $('myBookings').innerHTML += data.bookings.map(bookingRow).join('')
+    || (fromStart ? '<p class="muted">No bookings for this email.</p>' : '');
+  nextCursor = data.next_cursor;                       // null on the last page
+  $('moreBtn').hidden = !nextCursor;
+}
+
+$('mineForm').onsubmit = (e) => { e.preventDefault(); findMyBookings(true); };
+$('moreBtn').onclick = () => findMyBookings(false);
+$('lookupForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const { status, data } = await api('GET', `/bookings/${encodeURIComponent($('lookupId').value.trim())}`);
+  if (status === 200) $('lookupResult').innerHTML = bookingRow(data);
+  else message('lookupResult', status === 404 ? 'No booking found with that reference.' : `${status}: ${data.error}`);
+};
+
+// ------------------------------------------------------------------ 6. reset (POST /reset)
+// Loads 5 weeks of appointments from today (no Sundays), then replaces everything via POST /reset.
 const SCHEDULE = [
-  { provider: 'Dr Ade',    days: [1, 2, 3, 4, 5], hours: [9, 9.5, 10, 10.5, 11, 11.5] },   // Mon–Fri mornings
-  { provider: 'Dr Bello',  days: [1, 2, 3, 4, 5, 6], hours: [13, 13.5, 14, 14.5, 15] },    // Mon–Sat afternoons
-  { provider: 'Dr Chukwu', days: [2, 4, 6], hours: [15, 15.5, 16, 16.5] },                  // Tue, Thu, Sat
+  { doctor: 'Dr Ade',    days: [1, 2, 3, 4, 5],    hours: [9, 9.5, 10, 10.5, 11, 11.5] },  // Mon–Fri mornings
+  { doctor: 'Dr Bello',  days: [1, 2, 3, 4, 5, 6], hours: [13, 13.5, 14, 14.5, 15] },      // Mon–Sat afternoons
+  { doctor: 'Dr Chukwu', days: [2, 4, 6],          hours: [15, 15.5, 16, 16.5] },          // Tue, Thu, Sat
 ];
-function sampleSlots(daysAhead = 35) {
+
+async function reset() {
+  if (!confirm('Reset deletes ALL bookings and loads 5 weeks of new appointments. Continue?')) return;
   const slots = [];
-  const soonest = Date.now() + 30 * 60000; // nothing that starts within 30 minutes
-  const base = new Date(); base.setHours(0, 0, 0, 0);
-  for (let i = 0; i < daysAhead; i++) {
-    const day = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
-    for (const doc of SCHEDULE) {
-      if (!doc.days.includes(day.getDay())) continue;
-      for (const hr of doc.hours) {
-        const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), Math.floor(hr), (hr % 1) * 60);
-        if (start.getTime() < soonest) continue;
+  for (let i = 0; i < 35; i++) {
+    const day = new Date(); day.setHours(0, 0, 0, 0); day.setDate(day.getDate() + i);
+    for (const { doctor: name, days, hours } of SCHEDULE) {
+      if (!days.includes(day.getDay())) continue;
+      for (const h of hours) {
+        const start = new Date(day); start.setHours(Math.floor(h), (h % 1) * 60);
+        if (start < Date.now() + 30 * 60000) continue;          // skip times that have passed
         const end = new Date(start.getTime() + 30 * 60000);
-        const id = `${dateKey(start)}-${doc.provider.split(' ')[1].toLowerCase()}-${pad(start.getHours())}${pad(start.getMinutes())}`;
-        slots.push({ id, provider: doc.provider, start: start.toISOString().replace('.000Z', 'Z'), end: end.toISOString().replace('.000Z', 'Z') });
+        slots.push({ id: `${dayKey(start)}-${name.split(' ')[1].toLowerCase()}-${pad(start.getHours())}${pad(start.getMinutes())}`,
+                     provider: name, start: start.toISOString(), end: end.toISOString() });
       }
     }
   }
-  return slots;
+  const { status, data } = await api('POST', '/reset', { slots });
+  selectedDay = null; month = null;
+  await loadSlots();
+  message('pageMessage', status === 200 ? `Reset done: ${slots.length} appointments loaded.` : `${status}: ${data.error}`, status === 200);
 }
-async function resetDemo() {
-  if (!confirm('This replaces ALL appointments with sample ones for the next 5 weeks and deletes ALL bookings. Continue?')) return;
-  const slots = sampleSlots();
-  const r = await api('POST', '/reset', { slots });
-  if (r.status !== 200) return toast(r.data.error || 'Could not load sample appointments');
-  provider = ''; selectedDay = null; viewMonth = null;
-  $('mineList').replaceChildren(); $('lookupResult').replaceChildren(); $('moreBtn').hidden = true;
-  toast(`Loaded ${slots.length} sample appointments for the next 5 weeks`);
-  selectTab('book'); loadSlots();
-}
-$('resetBtn').onclick = resetDemo;
 
-// ---------- start ----------
-const saved = keyStore.get();
-if (saved) { $('apiKey').value = saved; connect(saved, true); }
-else $('apiKey').focus();
+// ------------------------------------------------------------------ buttons
+$('keyForm').onsubmit = (e) => { e.preventDefault(); connect(); };
+$('resetBtn').onclick = reset;
+document.querySelectorAll('.tab').forEach((tab) => tab.onclick = () => {
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t === tab));
+  $('book').hidden = tab.dataset.tab !== 'book';
+  $('mine').hidden = tab.dataset.tab !== 'mine';
+});
+
+if ($('apiKey').value) connect();            // reconnect automatically after a page refresh
 </script>
 </body>
 </html>
